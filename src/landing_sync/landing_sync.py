@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Optional
+
+from snowflake.connector.errors import ProgrammingError
 
 from .config import Settings
 from .snowflake_client import SnowflakeClient
+
+
+IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
 
 @dataclass
@@ -65,13 +71,83 @@ class LandingSync:
         """Snowflake 接続を閉じる"""
         self.client.close()
 
-    def run(self) -> list[dict[str, Any]]:
+    def run(self, raw_table: str, limit: int = 10) -> list[dict[str, Any]]:
         """LandingSync の実行エントリポイント。
 
-        現在は最小実装として接続確認クエリを実行する。
+        現在は最小実装として RAW テーブルの先頭行を参照する。
         """
+        if limit <= 0:
+            raise ValueError("limit must be greater than 0")
+
+        table_name = self._validate_fq_table_name(raw_table)
+        database, schema, table = table_name.split(".")
+        exists_sql = f"""
+        SELECT COUNT(*) AS CNT
+        FROM {database}.INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_CATALOG = '{database}'
+          AND TABLE_SCHEMA = '{schema}'
+          AND TABLE_NAME = '{table}'
+          AND TABLE_TYPE = 'BASE TABLE'
+        """
+        sql = (
+            "SELECT PAYLOAD, SOURCE_FILE, SOURCE_ROW_NUMBER, LOADED_AT "
+            f"FROM {table_name} ORDER BY LOADED_AT DESC LIMIT {limit}"
+        )
+
         self.connect()
         try:
-            return self.client.execute_query("SELECT 1 AS alive")
+            try:
+                exists_result = self.client.execute_query(exists_sql)
+                exists = bool(exists_result and exists_result[0].get("CNT", 0) > 0)
+            except ProgrammingError as e:
+                context = self._get_current_context()
+                role = context.get("ROLE")
+                current_db = context.get("DB")
+                current_schema = context.get("SC")
+                raise RuntimeError(
+                    "RAW テーブルの事前確認に失敗しました。"
+                    f" object={table_name}, role={role}, current_db={current_db}, current_schema={current_schema}. "
+                    "USAGE 権限（DATABASE/SCHEMA）と SELECT 権限を確認してください。"
+                ) from e
+
+            if not exists:
+                context = self._get_current_context()
+                role = context.get("ROLE")
+                current_db = context.get("DB")
+                current_schema = context.get("SC")
+                raise RuntimeError(
+                    "RAW テーブルが見つからないか、参照権限がありません。"
+                    f" object={table_name}, role={role}, current_db={current_db}, current_schema={current_schema}. "
+                    "テーブル存在確認と USAGE/SELECT 権限付与を確認してください。"
+                )
+
+            return self.client.execute_query(sql)
+        except ProgrammingError as e:
+            if getattr(e, "sqlstate", None) == "42S02":
+                context = self._get_current_context()
+                role = context.get("ROLE")
+                current_db = context.get("DB")
+                current_schema = context.get("SC")
+                raise RuntimeError(
+                    "RAW テーブルにアクセスできません。"
+                    f" object={table_name}, role={role}, current_db={current_db}, current_schema={current_schema}. "
+                    "テーブル存在確認と SELECT 権限付与を確認してください。"
+                ) from e
+            raise
         finally:
             self.close()
+
+    def _get_current_context(self) -> dict[str, Any]:
+        context = self.client.execute_query(
+            "SELECT CURRENT_ROLE() AS ROLE, CURRENT_DATABASE() AS DB, CURRENT_SCHEMA() AS SC"
+        )
+        return context[0] if context else {}
+
+    @staticmethod
+    def _validate_fq_table_name(name: str) -> str:
+        parts = name.split(".")
+        if len(parts) != 3 or not all(IDENTIFIER_RE.fullmatch(p) for p in parts):
+            raise ValueError(
+                "raw_table must be in 'database.schema.table' format with valid identifiers"
+            )
+        return ".".join(parts)

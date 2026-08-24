@@ -29,8 +29,7 @@ def parse_arguments() -> argparse.Namespace:
         epilog="""
 使用例:
   接続確認:
-    python src/landing_sync/main.py \
-      --query "SELECT 1 AS alive"
+        python src/landing_sync/main.py
 
   環境変数を使う場合:
     export SNOWFLAKE_ACCOUNT=...
@@ -40,11 +39,6 @@ def parse_arguments() -> argparse.Namespace:
         """,
     )
 
-    parser.add_argument(
-        "--query",
-        default="SELECT 1 AS alive",
-        help="実行する SQL（デフォルト: SELECT 1 AS alive）",
-    )
     parser.add_argument("--source-type", default="sqlserver", choices=["oracle", "sqlserver", "mysql"])
     parser.add_argument("--account", default=_env_or_default("SNOWFLAKE_ACCOUNT"), help="Snowflake account")
     parser.add_argument("--user", default=_env_or_default("SNOWFLAKE_USER"), help="Snowflake user")
@@ -103,7 +97,7 @@ def main() -> int:
     )
 
     sync = LandingSync(options, snowflake_config)
-    result = sync.execute_sql(args.query)
+    result = sync.run()
     print(result)
     return 0
 

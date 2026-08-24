@@ -3,12 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import structlog
-
 from .config import Settings
 from .snowflake_client import SnowflakeClient
-
-logger = structlog.get_logger()
 
 
 @dataclass
@@ -69,16 +65,13 @@ class LandingSync:
         """Snowflake 接続を閉じる"""
         self.client.close()
 
-    def execute_sql(self, sql: str) -> list[dict[str, Any]]:
-        """任意の SQL を実行する"""
+    def run(self) -> list[dict[str, Any]]:
+        """LandingSync の実行エントリポイント。
+
+        現在は最小実装として接続確認クエリを実行する。
+        """
         self.connect()
         try:
-            return self.client.execute_query(sql)
+            return self.client.execute_query("SELECT 1 AS alive")
         finally:
             self.close()
-
-    def ping(self) -> dict[str, Any]:
-        """Snowflake への接続確認として SELECT 1 を実行する"""
-        result = self.execute_sql("SELECT 1 AS alive")
-        logger.info("ping 成功", result=result)
-        return {"ok": True, "result": result}

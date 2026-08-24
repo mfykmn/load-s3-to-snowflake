@@ -34,7 +34,7 @@ Compaction と同じように、コマンドラインから Snowflake に接続�
 
 ```bash
 cd src/landing_sync
-python main.py --query "SELECT 1 AS alive"
+python main.py
 ```
 
 環境変数を使う場合は `.env` に接続情報を入れて、引数なしで実行できます。

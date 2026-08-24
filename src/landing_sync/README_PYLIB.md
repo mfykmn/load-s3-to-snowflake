@@ -36,8 +36,8 @@ snowflake_config = SnowflakeConfig(
 sync = LandingSync(options, snowflake_config)
 
 # 接続確認
-result = sync.ping()
-print(result)  # {'ok': True, 'result': [{'ALIVE': 1}]}
+result = sync.run()
+print(result)  # [{'ALIVE': 1}]
 ```
 
 ## 3. whl ファイルのビルド方法

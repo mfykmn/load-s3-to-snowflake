@@ -28,8 +28,9 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用例:
-  接続確認:
-        python src/landing_sync/main.py
+    RAW テーブル参照:
+        python src/landing_sync/main.py \
+            --raw-table KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE
 
   環境変数を使う場合:
     export SNOWFLAKE_ACCOUNT=...
@@ -40,6 +41,17 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument("--source-type", default="sqlserver", choices=["oracle", "sqlserver", "mysql"])
+    parser.add_argument(
+        "--raw-table",
+        default=_env_or_default("RAW_TABLE"),
+        help="参照する RAW テーブル名（db.schema.table 形式）",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="RAW テーブル参照時の取得件数（デフォルト: 10）",
+    )
     parser.add_argument("--account", default=_env_or_default("SNOWFLAKE_ACCOUNT"), help="Snowflake account")
     parser.add_argument("--user", default=_env_or_default("SNOWFLAKE_USER"), help="Snowflake user")
     parser.add_argument("--password", default=_env_or_default("SNOWFLAKE_PASSWORD"), help="Snowflake password")
@@ -97,7 +109,10 @@ def main() -> int:
     )
 
     sync = LandingSync(options, snowflake_config)
-    result = sync.run()
+    if not args.raw_table:
+        raise SystemExit("RAW_TABLE or --raw-table is required")
+
+    result = sync.run(args.raw_table, args.limit)
     print(result)
     return 0
 

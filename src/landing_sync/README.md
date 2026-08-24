@@ -30,18 +30,17 @@ cp .env.example .env
 
 ## CLI 利用
 
-Compaction と同じように、コマンドラインから Snowflake に接続して SQL を実行できます。
+Compaction と同じように、コマンドラインから Snowflake に接続して RAW テーブルを参照できます。
 
 ```bash
-cd src/landing_sync
-python main.py
+python main.py --raw-table KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE --limit 10
 ```
 
-環境変数を使う場合は `.env` に接続情報を入れて、引数なしで実行できます。
+環境変数を使う場合は `.env` に接続情報と `RAW_TABLE` を入れて実行できます。
 `SNOWFLAKE_PRIVATE_KEY_PATH` を指定すると、秘密鍵ファイルをそのまま使えます。
 
 ```bash
-python main.py
+python main.py --limit 10
 ```
 
 ## ライブラリ利用

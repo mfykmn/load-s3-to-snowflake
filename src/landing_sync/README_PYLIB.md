@@ -35,9 +35,9 @@ snowflake_config = SnowflakeConfig(
 
 sync = LandingSync(options, snowflake_config)
 
-# 接続確認
-result = sync.run()
-print(result)  # [{'ALIVE': 1}]
+# RAW テーブル参照
+result = sync.run("KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE", limit=10)
+print(result)
 ```
 
 ## 3. whl ファイルのビルド方法

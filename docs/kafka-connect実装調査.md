@@ -69,6 +69,38 @@ enable_schema_evolution = true error_logging = true
 
 - 実装: [TableSchemaResolver.java](https://github.com/snowflakedb/snowflake-kafka-connector/blob/master/src/main/java/com/snowflake/kafka/connector/internal/schemaevolution/TableSchemaResolver.java#L53-L165)
 
+schema evolution で実際の Kafka Connect type/name を Snowflake 型へ落とす本体は次の通り。
+
+- 型マッピング本体: [SnowflakeColumnTypeMapper.java](https://github.com/snowflakedb/snowflake-kafka-connector/blob/master/src/main/java/com/snowflake/kafka/connector/internal/schemaevolution/SnowflakeColumnTypeMapper.java)
+- 呼び出し側: [TableSchemaResolver.java](https://github.com/snowflakedb/snowflake-kafka-connector/blob/master/src/main/java/com/snowflake/kafka/connector/internal/schemaevolution/TableSchemaResolver.java#L134-L153)
+- 期待値テスト: [SnowflakeColumnTypeMapperTest.java](https://github.com/snowflakedb/snowflake-kafka-connector/blob/master/src/test/java/com/snowflake/kafka/connector/internal/schemaevolution/SnowflakeColumnTypeMapperTest.java)
+
+現時点の主要マッピングは以下。
+
+- `INT8` -> `BYTEINT`
+- `INT16` -> `SMALLINT`
+- `INT32` + `org.apache.kafka.connect.data.Date` -> `DATE`
+- `INT32` + `org.apache.kafka.connect.data.Time` -> `TIME(6)`
+- `INT32` -> `INT`
+- `INT64` + `org.apache.kafka.connect.data.Timestamp` -> `TIMESTAMP(6)`
+- `INT64` -> `BIGINT`
+- `FLOAT32` -> `FLOAT`
+- `FLOAT64` -> `DOUBLE`
+- `BOOLEAN` -> `BOOLEAN`
+- `STRING` -> `VARCHAR`
+- `BYTES` + `org.apache.kafka.connect.data.Decimal` -> `VARCHAR`
+- `BYTES` -> `BINARY`
+- `ARRAY` -> `ARRAY`
+- `STRUCT` / `MAP` -> `VARIANT`
+
+型パラメータ（precision/scale/length）に関するルール:
+
+- schema evolution の DDL は、`SnowflakeColumnTypeMapper` が返す「固定の型文字列」を使う
+- そのため source 側の precision/scale/length を列定義へ個別反映しない
+- 例: `BYTES` + `org.apache.kafka.connect.data.Decimal` は `VARCHAR`（`NUMBER(p,s)` にはしない）
+- 例: `STRING` は `VARCHAR`（長さ未指定）
+- 例外的に `TIME(6)` / `TIMESTAMP(6)` のような固定スケール指定はマッピング定義として含まれる
+
 分岐:
 
 - schema あり: Kafka Connect schema から型を取得
@@ -90,3 +122,10 @@ enable_schema_evolution = true error_logging = true
 3. 追加カラム型は schema 有無で決まる（schema -> 明示型、schema-less -> 値推論）
 
 このため、RAW テーブルへまず取り込み、後段で整形する運用は Kafka Connector 実装方針と整合する。
+
+## 8. LandingSync 実装時の参照先
+Phase 2 の `debezium_type_converter.py` 実装時は、モジュール先頭またはクラス docstring に次の参照リンクを残す。
+
+- [SnowflakeColumnTypeMapper.java](https://github.com/snowflakedb/snowflake-kafka-connector/blob/master/src/main/java/com/snowflake/kafka/connector/internal/schemaevolution/SnowflakeColumnTypeMapper.java)
+- [TableSchemaResolver.java](https://github.com/snowflakedb/snowflake-kafka-connector/blob/master/src/main/java/com/snowflake/kafka/connector/internal/schemaevolution/TableSchemaResolver.java#L134-L153)
+- [SnowflakeColumnTypeMapperTest.java](https://github.com/snowflakedb/snowflake-kafka-connector/blob/master/src/test/java/com/snowflake/kafka/connector/internal/schemaevolution/SnowflakeColumnTypeMapperTest.java)

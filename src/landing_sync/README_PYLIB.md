@@ -35,8 +35,11 @@ snowflake_config = SnowflakeConfig(
 
 sync = LandingSync(options, snowflake_config)
 
-# RAW テーブル参照
-result = sync.run("KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE")
+# RAW テーブル参照 + Landing テーブル管理
+result = sync.run(
+    raw_table="KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE",
+    landing_table="KAFKA_DB.KAFKA_SCHEMA.LANDING_TABLE",
+)
 print(result)
 ```
 

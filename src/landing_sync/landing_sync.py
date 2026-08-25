@@ -9,6 +9,7 @@ from snowflake.connector.errors import ProgrammingError
 
 from .config import Settings
 from .debezium_type_converter import DebeziumTypeConverter
+from .landing_table_manager import LandingTableManager
 from .raw_schema_fetcher import RawSchemaFetcher
 from .snowflake_client import SnowflakeClient
 
@@ -76,21 +77,23 @@ class LandingSync:
 
     def fetch_after_schema(self, raw_table: str) -> list[dict[str, Any]]:
         """RAW テーブルから Debezium の after フィールド定義を取得する。"""
-        table_name = self._validate_fq_table_name(raw_table)
+        raw_table_name = self._validate_fq_table_name(raw_table)
         self.connect()
         try:
             fetcher = RawSchemaFetcher(self.client)
-            return fetcher.fetch_after_fields(table_name)
+            return fetcher.fetch_after_fields(raw_table_name)
         finally:
             self.close()
 
-    def run(self, raw_table: str) -> list[dict[str, Any]]:
+    def run(self, raw_table: str, landing_table: str) -> list[dict[str, Any]]:
         """LandingSync の実行エントリポイント。
 
         現在は最小実装として RAW テーブルから after スキーマ定義を取得し、
         Snowflake 型付きの列定義へ変換する。
+        landing_table のテーブル管理も実行する。
         """
-        table_name = self._validate_fq_table_name(raw_table)
+        raw_table_name = self._validate_fq_table_name(raw_table)
+        landing_table_name = self._validate_fq_table_name(landing_table)
         as_of = datetime.now(timezone.utc)
         self.connect()
         try:
@@ -98,11 +101,17 @@ class LandingSync:
                 # Step 1: DML レコードから after スキーマ定義を取得
                 # fetcher 内で RAW テーブル存在確認も実施する。
                 fetcher = RawSchemaFetcher(self.client)
-                after_fields = fetcher.fetch_after_fields(table_name, end_loaded_at=as_of)
+                after_fields = fetcher.fetch_after_fields(raw_table_name, end_loaded_at=as_of)
 
                 # Step 2: Debezium/Kafka Connect schema を Snowflake 型へ変換
                 converter = DebeziumTypeConverter()
-                return self._build_typed_columns(after_fields, converter)
+                typed_columns = self._build_typed_columns(after_fields, converter)
+
+                # Step 3: Landing テーブル管理
+                manager = LandingTableManager(self.client, source_type=self.options.source_type)
+                manager.sync_table_schema(landing_table_name, typed_columns)
+
+                return typed_columns
             except RuntimeError as e:
                 context = self._get_current_context()
                 role = context.get("ROLE")
@@ -119,7 +128,7 @@ class LandingSync:
                 current_schema = context.get("SC")
                 raise RuntimeError(
                     "RAW テーブルにアクセスできません。"
-                    f" object={table_name}, role={role}, current_db={current_db}, current_schema={current_schema}. "
+                    f" object={raw_table_name}, role={role}, current_db={current_db}, current_schema={current_schema}. "
                     "テーブル存在確認と SELECT 権限付与を確認してください。"
                 ) from e
             raise

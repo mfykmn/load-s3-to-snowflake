@@ -76,6 +76,11 @@ def parse_arguments() -> argparse.Namespace:
         default=_env_or_default("RAW_TABLE"),
         help="参照する RAW テーブル名（db.schema.table 形式）",
     )
+    parser.add_argument(
+        "--landing-table",
+        default=_env_or_default("LANDING_TABLE"),
+        help="同期先 Landing テーブル名（db.schema.table 形式）",
+    )
     parser.add_argument("--account", default=_env_or_default("SNOWFLAKE_ACCOUNT"), help="Snowflake account")
     parser.add_argument("--user", default=_env_or_default("SNOWFLAKE_USER"), help="Snowflake user")
     parser.add_argument("--password", default=_env_or_default("SNOWFLAKE_PASSWORD"), help="Snowflake password")
@@ -135,8 +140,10 @@ def main() -> int:
     sync = LandingSync(options, snowflake_config)
     if not args.raw_table:
         raise SystemExit("RAW_TABLE or --raw-table is required")
+    if not args.landing_table:
+        raise SystemExit("LANDING_TABLE or --landing-table is required")
 
-    result = sync.run(args.raw_table)
+    result = sync.run(args.raw_table, landing_table=args.landing_table)
     print(json.dumps(_normalize_run_result(result), ensure_ascii=False, indent=2))
     return 0
 

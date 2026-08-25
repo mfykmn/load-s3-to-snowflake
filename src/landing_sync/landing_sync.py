@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import re
 from typing import Any, Optional
 
 from snowflake.connector.errors import ProgrammingError
 
 from .config import Settings
+from .raw_schema_fetcher import RawSchemaFetcher
 from .snowflake_client import SnowflakeClient
 
 
@@ -71,57 +73,39 @@ class LandingSync:
         """Snowflake 接続を閉じる"""
         self.client.close()
 
-    def run(self, raw_table: str, limit: int = 10) -> list[dict[str, Any]]:
+    def fetch_after_schema(self, raw_table: str) -> list[dict[str, Any]]:
+        """RAW テーブルから Debezium の after フィールド定義を取得する。"""
+        table_name = self._validate_fq_table_name(raw_table)
+        self.connect()
+        try:
+            fetcher = RawSchemaFetcher(self.client)
+            return fetcher.fetch_after_fields(table_name)
+        finally:
+            self.close()
+
+    def run(self, raw_table: str) -> list[dict[str, Any]]:
         """LandingSync の実行エントリポイント。
 
-        現在は最小実装として RAW テーブルの先頭行を参照する。
+        現在は最小実装として RAW テーブルから after スキーマ定義を取得する。
         """
-        if limit <= 0:
-            raise ValueError("limit must be greater than 0")
-
         table_name = self._validate_fq_table_name(raw_table)
-        database, schema, table = table_name.split(".")
-        exists_sql = f"""
-        SELECT COUNT(*) AS CNT
-        FROM {database}.INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_CATALOG = '{database}'
-          AND TABLE_SCHEMA = '{schema}'
-          AND TABLE_NAME = '{table}'
-          AND TABLE_TYPE = 'BASE TABLE'
-        """
-        sql = (
-            "SELECT PAYLOAD, SOURCE_FILE, SOURCE_ROW_NUMBER, LOADED_AT "
-            f"FROM {table_name} ORDER BY LOADED_AT DESC LIMIT {limit}"
-        )
-
+        as_of = datetime.now(timezone.utc)
         self.connect()
         try:
             try:
-                exists_result = self.client.execute_query(exists_sql)
-                exists = bool(exists_result and exists_result[0].get("CNT", 0) > 0)
-            except ProgrammingError as e:
+                # Step 1: DML レコードから after スキーマ定義を取得
+                # fetcher 内で RAW テーブル存在確認も実施する。
+                fetcher = RawSchemaFetcher(self.client)
+                after_fields = fetcher.fetch_after_fields(table_name, end_loaded_at=as_of)
+                return after_fields
+            except RuntimeError as e:
                 context = self._get_current_context()
                 role = context.get("ROLE")
                 current_db = context.get("DB")
                 current_schema = context.get("SC")
                 raise RuntimeError(
-                    "RAW テーブルの事前確認に失敗しました。"
-                    f" object={table_name}, role={role}, current_db={current_db}, current_schema={current_schema}. "
-                    "USAGE 権限（DATABASE/SCHEMA）と SELECT 権限を確認してください。"
+                    f"{e} role={role}, current_db={current_db}, current_schema={current_schema}."
                 ) from e
-
-            if not exists:
-                context = self._get_current_context()
-                role = context.get("ROLE")
-                current_db = context.get("DB")
-                current_schema = context.get("SC")
-                raise RuntimeError(
-                    "RAW テーブルが見つからないか、参照権限がありません。"
-                    f" object={table_name}, role={role}, current_db={current_db}, current_schema={current_schema}. "
-                    "テーブル存在確認と USAGE/SELECT 権限付与を確認してください。"
-                )
-
-            return self.client.execute_query(sql)
         except ProgrammingError as e:
             if getattr(e, "sqlstate", None) == "42S02":
                 context = self._get_current_context()

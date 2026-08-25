@@ -33,14 +33,14 @@ cp .env.example .env
 Compaction と同じように、コマンドラインから Snowflake に接続して RAW テーブルを参照できます。
 
 ```bash
-python main.py --raw-table KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE --limit 10
+python main.py --raw-table KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE
 ```
 
 環境変数を使う場合は `.env` に接続情報と `RAW_TABLE` を入れて実行できます。
 `SNOWFLAKE_PRIVATE_KEY_PATH` を指定すると、秘密鍵ファイルをそのまま使えます。
 
 ```bash
-python main.py --limit 10
+python main.py
 ```
 
 ## ライブラリ利用

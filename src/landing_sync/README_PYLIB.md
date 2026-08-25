@@ -36,7 +36,7 @@ snowflake_config = SnowflakeConfig(
 sync = LandingSync(options, snowflake_config)
 
 # RAW テーブル参照
-result = sync.run("KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE", limit=10)
+result = sync.run("KAFKA_DB.KAFKA_SCHEMA.RAW_TABLE")
 print(result)
 ```
 

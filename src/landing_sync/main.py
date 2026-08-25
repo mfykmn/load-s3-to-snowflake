@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -20,6 +21,35 @@ def _env_or_default(name: str, default: Optional[str] = None) -> Optional[str]:
     if value is None or value == "":
         return default
     return value
+
+
+def _to_json_safe(value: object) -> object:
+    if isinstance(value, dict):
+        return {k: _to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_to_json_safe(v) for v in value]
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()  # datetime/date/time
+        except Exception:
+            return str(value)
+    return value
+
+
+def _normalize_run_result(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    for row in rows:
+        item = dict(row)
+        payload = item.get("PAYLOAD")
+        if isinstance(payload, str):
+            stripped = payload.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    item["PAYLOAD"] = json.loads(payload)
+                except json.JSONDecodeError:
+                    pass
+        normalized.append(_to_json_safe(item))
+    return normalized
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -45,12 +75,6 @@ def parse_arguments() -> argparse.Namespace:
         "--raw-table",
         default=_env_or_default("RAW_TABLE"),
         help="参照する RAW テーブル名（db.schema.table 形式）",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="RAW テーブル参照時の取得件数（デフォルト: 10）",
     )
     parser.add_argument("--account", default=_env_or_default("SNOWFLAKE_ACCOUNT"), help="Snowflake account")
     parser.add_argument("--user", default=_env_or_default("SNOWFLAKE_USER"), help="Snowflake user")
@@ -112,8 +136,8 @@ def main() -> int:
     if not args.raw_table:
         raise SystemExit("RAW_TABLE or --raw-table is required")
 
-    result = sync.run(args.raw_table, args.limit)
-    print(result)
+    result = sync.run(args.raw_table)
+    print(json.dumps(_normalize_run_result(result), ensure_ascii=False, indent=2))
     return 0
 
 

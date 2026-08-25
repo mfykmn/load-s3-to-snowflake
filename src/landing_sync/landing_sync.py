@@ -8,6 +8,7 @@ from typing import Any, Optional
 from snowflake.connector.errors import ProgrammingError
 
 from .config import Settings
+from .debezium_type_converter import DebeziumTypeConverter
 from .raw_schema_fetcher import RawSchemaFetcher
 from .snowflake_client import SnowflakeClient
 
@@ -86,7 +87,8 @@ class LandingSync:
     def run(self, raw_table: str) -> list[dict[str, Any]]:
         """LandingSync の実行エントリポイント。
 
-        現在は最小実装として RAW テーブルから after スキーマ定義を取得する。
+        現在は最小実装として RAW テーブルから after スキーマ定義を取得し、
+        Snowflake 型付きの列定義へ変換する。
         """
         table_name = self._validate_fq_table_name(raw_table)
         as_of = datetime.now(timezone.utc)
@@ -97,7 +99,10 @@ class LandingSync:
                 # fetcher 内で RAW テーブル存在確認も実施する。
                 fetcher = RawSchemaFetcher(self.client)
                 after_fields = fetcher.fetch_after_fields(table_name, end_loaded_at=as_of)
-                return after_fields
+
+                # Step 2: Debezium/Kafka Connect schema を Snowflake 型へ変換
+                converter = DebeziumTypeConverter()
+                return self._build_typed_columns(after_fields, converter)
             except RuntimeError as e:
                 context = self._get_current_context()
                 role = context.get("ROLE")
@@ -126,6 +131,19 @@ class LandingSync:
             "SELECT CURRENT_ROLE() AS ROLE, CURRENT_DATABASE() AS DB, CURRENT_SCHEMA() AS SC"
         )
         return context[0] if context else {}
+
+    @staticmethod
+    def _build_typed_columns(
+        after_fields: list[dict[str, Any]], converter: DebeziumTypeConverter
+    ) -> list[dict[str, Any]]:
+        converted_columns = converter.convert_fields(after_fields)
+        return [
+            {
+                **field_def,
+                "snowflake_type": converted.snowflake_type,
+            }
+            for field_def, converted in zip(after_fields, converted_columns)
+        ]
 
     @staticmethod
     def _validate_fq_table_name(name: str) -> str:
